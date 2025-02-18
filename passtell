@@ -166,7 +166,7 @@ help()
          passtell l* [<directory>]
          passtell -h | --help
 
-Passtell: Passwords Are Securely Stored Through Encryption at the Local Level.
+passtell: Passwords Are Securely Stored Through Encryption at the Local Level.
 
 Commands:
   a*,   Add a new password file.
