@@ -1,0 +1,274 @@
+#!/bin/sh
+
+# Passwords Are Securely Stored Through Encryption at the Local Level
+# Copyright (C) 2023 - 2024 Isaque C. Pires
+#
+# This program is free software: you can redistribute it and/or modify 
+# it under the terms of the GNU General Public License as published by 
+# the Free Software Foundation, either version 3 of the License, or (at 
+# your option) any later version.
+#
+# This program is distributed in the hope that it will be useful, but 
+# WITHOUT ANY WARRANTY; without even the implied warranty of 
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU 
+# General Public License for more details. 
+#
+# You should have received a copy of the GNU General Public License 
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# A simple interactive password manager, written in POSIX shell.
+add()
+{
+  extension
+  
+  [ ! -f "$filename" ] ||
+    die "password filename already exists in the '$dir' directory"
+  
+  printf 'Enter the password: '
+ 
+  # Silently read the password
+  silent_read password
+  
+  [ -n "$password" ] ||
+    die "password can't be empty"
+
+  encrypt "$filename"
+}
+
+encrypt()
+{
+  [ "$password" != "${1%.age}" ] ||
+    die "password can't be the same as the filename"
+  
+  # Encrypt the entered password using 'age' with a filename.
+  # Errors are handle to a hidden temporary file on directory.
+  if printf '%s' "$password" | age -p -o "$1" - 2> "$age.error"; then
+    printf "encrypted password file saved as %s.\n" "$filename"
+  else
+    error_format
+  fi
+}
+
+show()
+{
+  decrypt
+
+  printf '%s\n' "$password"
+}
+
+edit()
+{
+  decrypt
+  
+  printf 'Enter the new filename (leave empty to keep the same): '
+  read -r new_filename
+
+  filename="${new_filename:-$filename}"
+  extension
+  
+  # Remove extension ".age" from filename
+  path_to_file="${1%.age}.age"
+  file="${path_to_file##*/}"
+
+  [ -f "$filename" ] && [ "$filename" != "$file" ] &&
+    die "password filename already exists in the '$dir' directory"
+
+  printf 'Enter the new password (leave empty to keep the same): '
+    
+  # Silently read the new password
+  silent_read new_password
+
+  # Set the 'password' to 'new_password' if is non-empty,
+  # otherwise, keep the existing value of 'password'.
+  password="${new_password:-$password}"
+  
+  encrypt "$file"
+    
+  # To keep the same filename without output messages,
+  # stdout and stderr are redirected and discarded.
+  [ "$file" = "$filename" ] ||
+    mv -f "./$file" "./$filename" > /dev/null 2>&1
+}
+
+delete()
+{
+  decrypt
+
+  rm -f "./$filename" > /dev/null 2>&1 ||
+    die "failed to delete $filename"
+
+  printf "'%s' was successfully deleted.\n" "$filename"
+}
+
+silent_read()
+{
+  # Hide password input during typing.
+  stty -echo
+  read -r "$1"
+  stty echo
+  printf '\n'
+}
+
+extension()
+{
+  # To ensure the filename has the extension appending '.age'.
+  filename="${filename%.age}.age"
+}
+
+verify()
+{
+  [ -f "$filename" ] ||
+    die "'${filename##*/}' password file does not exist in the '$dir' directory"
+}
+
+die()
+{
+  # To handle passtell error messages.
+  printf 'error: %s.\n' "$1" >&2
+  exit 1
+}
+
+decrypt()
+{
+  # Seting up for the decryption operation.
+  extension
+  verify
+  
+  # Decrypt the password using age with the specified filename.
+  password=$(age -d "./$filename" 2> "$age.error") || error_format
+}
+
+error_format()
+{
+  # Format age output errors to show only the error message.
+  [ ! -f "$age.error" ] ||
+    printf "%s\n" "$(sed '2d' "$age.error" | cut -c6-)" >&2
+
+  exit 1
+} 
+
+usage()
+{
+  cat <<EOF
+  Usage: passtell command (<filename> | <path/to/file>)
+       passtell l* [<directory>]
+       passtell -h | --help
+
+Try 'passtell -h' or 'passtell --help' for help information.
+EOF
+  exit
+}
+
+help()
+{
+  cat <<EOF
+  Usage: passtell command (<filename> | <path/to/file>)
+         passtell l* [<directory>]
+         passtell -h | --help
+
+Passtell: Passwords Are Securely Stored Through Encryption at the Local Level.
+
+Commands:
+  a*,   Add a new password file.
+  s*,   Show a password file.
+  e*,   Edit a password file.
+  d*,   Delete a password file.
+  l*,   List the stored password files.
+
+Options:
+  -h, --help  Display this help information
+
+By default, passtell stores password files in the directory ~/.passtell.
+However, you can customize it by setting the environment variable PASSTELL_DIR:
+  export PASSTELL_DIR=/path/to/custom/directory
+EOF
+  exit
+}
+
+list()
+{
+  # Check if the path is defined.
+  [ -z "$1" ] ||
+    dir=$1
+
+  # Find the passwords on directory.
+  files=$(find "$dir" -type f -name '*.age') 2> /dev/null
+
+  # Loop through the list of files and removing the '.age' extension.
+  for file in $files; do
+    printf "%s --> %s\n" "${file##*/}" "$file"
+  done
+}
+
+arg()
+{
+  command -v age > /dev/null 2>&1 ||
+    die "age is not installed"
+
+  [ ! -z "$filename" ] ||
+    die "missing filename argument"
+
+  # Check if it's just a filename or if has a path.
+  if [ "$filename" = "$path_to_file" ]; then
+    mkdir -p "$dir" > /dev/null 2>&1 ||
+      die "failed to create the directory: $dir"
+  else
+    dir="$path"
+  fi
+
+  cd "$dir" > /dev/null 2>&1 ||
+    die "failed to change to directory: $dir"
+}
+
+main()
+{
+  # Clean up by removing the temporary age error file on script exit or interruption.
+  trap 'rm -f "$age.error"' EXIT INT HUP TERM QUIT
+  trap 'exit' INT HUP
+
+  # Define initial arguments.
+  command="$1"
+  path_to_file="$2"
+  filename="${path_to_file##*/}"
+  path="${path_to_file%/*}"
+
+  case "$command" in
+    a*)
+      arg
+      add "$path_to_file"
+     ;;
+    s*)
+      arg
+      show "$path_to_file" 
+      ;;
+    e*)
+      arg
+      edit "$path_to_file"
+      ;;
+    d*)
+      arg
+      delete "$path_to_file"
+      ;;
+    l*)
+      list "$path_to_file"
+      ;;
+    --help|-h)
+      help
+      ;;
+    *)
+      die "'$command' unrecognized command"
+      ;;
+  esac
+}
+
+# To set the default directory.
+dir="$HOME/.passtell"
+
+# To use the environment variable.
+dir="${PASSTELL_DIR:-$HOME/.passtell}"
+
+# To disable debugs
+set +x
+set -e
+
+[ "$1" ] && main "$@" || usage
