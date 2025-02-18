@@ -173,7 +173,7 @@ Commands:
   s*,   Show a password file.
   e*,   Edit a password file.
   d*,   Delete a password file.
-  l*,   List the stored password files.
+  l*,   List the password files.
 
 Options:
   -h, --help  Display this help information
